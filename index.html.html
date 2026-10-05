@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>html{color-scheme:light}body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Steam Trap Status Logic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: an instrument-panel page. A live demo (trap schematic + status map) up top, then numbered manual sections in a single 1100px column. */
+:root{
+  --bg:#edf0f2; --surface:#ffffff; --surface-2:#f5f7f8; --ink:#16202a; --muted:#56646f; --line:#d2d9df;
+  --accent:#0d6b88; --accent-ink:#ffffff; --pipe-inner:#2b3540; --steam:#f4f7fa; --grid:#e3e8ec;
+  --s-normal:#2b9358; --s-leak:#d2425a; --s-flood:#3b82c4; --s-choke:#d4842a; --s-closed:#7d5fc4; --s-offline:#87919a; --s-none:#a39b55;
+  --f-display:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e141a; --surface:#16202a; --surface-2:#1b2631; --ink:#e4eaef; --muted:#94a2ae; --line:#2b3743;
+  --accent:#4cb2d2; --accent-ink:#06222c; --pipe-inner:#0a0f14; --steam:#e9eff4; --grid:#212c37;
+  --s-normal:#45c07a; --s-leak:#ee6c82; --s-flood:#68abe6; --s-choke:#efa24a; --s-closed:#a48ae6; --s-offline:#8c979f; --s-none:#c7bd72;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e141a; --surface:#16202a; --surface-2:#1b2631; --ink:#e4eaef; --muted:#94a2ae; --line:#2b3743;
+  --accent:#4cb2d2; --accent-ink:#06222c; --pipe-inner:#0a0f14; --steam:#e9eff4; --grid:#212c37;
+  --s-normal:#45c07a; --s-leak:#ee6c82; --s-flood:#68abe6; --s-choke:#efa24a; --s-closed:#a48ae6; --s-offline:#8c979f; --s-none:#c7bd72;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55}
+.wrap{max-width:1100px;margin:0 auto;padding-inline:20px;padding-block:28px 64px;display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.1;text-wrap:balance;margin:0}
+h1{font-size:clamp(34px,5vw,52px);letter-spacing:-.01em}
+h2{font-size:clamp(24px,3vw,32px)}
+h3{font-size:19px;font-weight:600}
+p{margin:0;max-width:68ch}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.lede{font-size:17px;color:var(--muted);max-width:62ch}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+header{display:flex;flex-direction:column;gap:14px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px;color:var(--muted)}
+.chip{display:inline-flex;align-items:center;gap:7px}
+.sw{width:11px;height:11px;border-radius:3px;display:inline-block;flex:none}
+section{display:flex;flex-direction:column;gap:18px}
+.sec-head{display:flex;flex-direction:column;gap:8px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+/* Demo */
+.demo{display:grid;grid-template-columns:1.15fr 1fr;gap:0;overflow:hidden}
+.demo>div{min-width:0;padding:18px}
+.demo .left{border-right:1px solid var(--line);display:flex;flex-direction:column;gap:14px}
+.demo .right{display:flex;flex-direction:column;gap:12px}
+.panel-title{font-family:var(--f-mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+svg{display:block;width:100%;height:auto}
+svg text{font-family:var(--f-body)}
+.controls{border-top:1px solid var(--line);padding:16px 18px;display:flex;flex-direction:column;gap:14px;grid-column:1/-1;background:var(--surface-2)}
+.btnrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button{font:inherit;font-size:13.5px;cursor:pointer;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:6px 13px;display:inline-flex;gap:7px;align-items:center}
+button:hover{border-color:var(--muted)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.sliders{display:grid;grid-template-columns:1fr 1fr;gap:12px 24px}
+.slider{display:flex;flex-direction:column;gap:4px}
+.slider label{display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.slider output{font-family:var(--f-mono);color:var(--ink);font-weight:500}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.caption{min-height:3.2em;font-size:14.5px}
+.caption b{font-weight:600}
+/* decision path */
+.path{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.path li{display:grid;grid-template-columns:22px 1fr auto;gap:10px;align-items:center;padding:7px 10px;border-radius:7px;border:1px solid var(--line);font-size:13.5px;background:var(--surface)}
+.path li .n{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.path li .res{font-family:var(--f-mono);font-size:12px}
+.path li.skip{opacity:.45}
+.path li.fail .res{color:var(--muted)}
+.path li.hit{border-color:var(--hit);box-shadow:inset 3px 0 0 var(--hit)}
+.path li.hit .res{color:var(--hit);font-weight:600}
+.path .cond{min-width:0}
+.path .cond small{display:block;color:var(--muted);font-size:12px}
+.status-big{display:flex;align-items:center;gap:10px;font-family:var(--f-display);font-size:26px;font-weight:700}
+.status-big .sw{width:16px;height:16px;border-radius:4px}
+.status-big .code{font-family:var(--f-mono);font-size:13px;color:var(--muted);font-weight:400}
+/* tables */
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--f-mono);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500}
+td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+.baseline-inputs{display:flex;flex-wrap:wrap;gap:16px;padding:16px 18px;border-bottom:1px solid var(--line);align-items:end}
+.field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+.field input{font-family:var(--f-mono);font-size:16px;width:120px;padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)}
+.formula{font-family:var(--f-mono);font-size:13px;color:var(--muted)}
+/* flow */
+.flow{display:flex;flex-direction:column;gap:0;padding:18px}
+.step{display:grid;grid-template-columns:34px minmax(0,1fr) 170px;gap:14px;align-items:center}
+.step .q{border:1px solid var(--line);border-radius:8px;padding:10px 14px;background:var(--surface-2)}
+.step .q small{display:block;color:var(--muted);font-size:12.5px}
+.step .num{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;font-family:var(--f-mono);font-size:13px;background:var(--surface)}
+.step .yes{display:flex;align-items:center;gap:8px;font-size:13.5px}
+.step .yes .arrow{color:var(--muted);font-family:var(--f-mono);font-size:12px;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-weight:600;font-size:13px;border:1.5px solid currentColor}
+.no{margin-left:15px;border-left:1.5px dashed var(--line);height:22px;padding-left:28px;font-family:var(--f-mono);font-size:11.5px;color:var(--muted);display:flex;align-items:center}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.two>*{min-width:0}
+.note{padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.note ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.chart-box{padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.stat-row{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:13.5px;color:var(--muted)}
+.stat-row b{color:var(--ink);font-family:var(--f-mono)}
+.tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:12.5px;box-shadow:0 4px 14px rgba(0,0,0,.12);white-space:nowrap}
+.rel{position:relative}
+footer{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:16px}
+@media (max-width:860px){
+  .demo{grid-template-columns:1fr}
+  .demo .left{border-right:0;border-bottom:1px solid var(--line)}
+  .two{grid-template-columns:1fr}
+  .step{grid-template-columns:30px minmax(0,1fr)}
+  .step .yes{grid-column:2}
+}
+@media (max-width:520px){.sliders{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">Steam trap monitoring · User manual reference</span>
+  <h1>How a steam trap gets its status</h1>
+  <p class="lede">Every trap carries two temperature sensors, one just before it (inlet) and one just after it (outlet). Each new pair of readings is compared with limits worked out from that trap's own baseline temperatures, and the first rule that matches decides the status.</p>
+  <div class="legend" id="legend"></div>
+</header>
+
+<!-- LIVE DEMO -->
+<section aria-labelledby="demo-h">
+  <div class="sec-head">
+    <span class="eyebrow">Live demo</span>
+    <h2 id="demo-h">See the logic work</h2>
+    <p>Pick a condition, press <b>Play tour</b>, or move the sliders. You can also click anywhere on the status map. The trap drawing, the map and the decision checklist all follow the same two readings.</p>
+  </div>
+  <div class="panel demo">
+    <div class="left">
+      <div class="panel-title">What is happening inside the pipe</div>
+      <svg id="schem" viewBox="0 0 640 250" role="img" aria-label="Animated steam trap with inlet and outlet temperature sensors"></svg>
+      <div class="caption" id="caption"></div>
+      <div class="panel-title">Decision checklist, checked top to bottom</div>
+      <ol class="path" id="path"></ol>
+    </div>
+    <div class="right">
+      <div class="panel-title">Status map: inlet vs outlet temperature</div>
+      <div class="status-big" id="statusBig"></div>
+      <svg id="map" viewBox="0 0 470 430" role="img" aria-label="Status map with inlet temperature on the horizontal axis and outlet temperature on the vertical axis" style="cursor:crosshair;touch-action:none"></svg>
+    </div>
+    <div class="controls">
+      <div class="btnrow" id="scenBtns">
+        <button class="primary" id="tourBtn" type="button">▶ Play tour</button>
+      </div>
+      <div class="sliders">
+        <div class="slider"><label for="tinR">Inlet temperature <output id="tinO" class="mono"></output></label><input type="range" id="tinR" min="0" max="300" step="1"></div>
+        <div class="slider"><label for="toutR">Outlet temperature <output id="toutO" class="mono"></output></label><input type="range" id="toutR" min="0" max="300" step="1"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 1 -->
+<section aria-labelledby="s1">
+  <div class="sec-head">
+    <span class="eyebrow">Step 1</span>
+    <h2 id="s1">Baselines become limits</h2>
+    <p>Each trap is set up with a <b>baseline inlet</b> temperature (what the inlet reads when steam is present, close to the steam temperature at line pressure) and a <b>baseline outlet</b> temperature (what the outlet reads when the trap is working properly). Most limits are a fixed fraction of a baseline. A few are fixed temperatures. Change the baselines below and every limit on this page, including the demo above, updates.</p>
+  </div>
+  <div class="panel">
+    <div class="baseline-inputs">
+      <div class="field"><label for="bIn">Baseline inlet (°C)</label><input id="bIn" type="number" min="60" max="400" step="1" value="191"></div>
+      <div class="field"><label for="bOut">Baseline outlet (°C)</label><input id="bOut" type="number" min="30" max="300" step="1" value="100"></div>
+      <span class="formula">Example values: header trap, 1.3 MPa inlet, discharge to drain</span>
+    </div>
+    <div class="tbl-wrap"><table id="limTbl"></table></div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section aria-labelledby="s2">
+  <div class="sec-head">
+    <span class="eyebrow">Step 2</span>
+    <h2 id="s2">Rules are checked in a fixed order</h2>
+    <p>The readings are tested against each question in turn. The first <b>yes</b> sets the status and the remaining questions are skipped. That order is why the map has no overlapping areas: every point on it belongs to exactly one status.</p>
+  </div>
+  <div class="panel flow" id="flow"></div>
+</section>
+
+<!-- 3 -->
+<section aria-labelledby="s3">
+  <div class="sec-head">
+    <span class="eyebrow">Step 3</span>
+    <h2 id="s3">Hysteresis stops the status from flickering</h2>
+    <p>Readings move a degree or two all the time. If a trap sits right on a limit, the status could switch back and forth with every reading. To prevent that, each <b>minimum</b> limit has a hold band that runs from <b><span id="hysTxt">4 °C</span> below the limit up to the limit</b>. When a reading lands in the hold band of the trap's previous status, and that status's other limits are still met, the previous status is kept. <b>Maximum</b> limits have no hold band. The hold is applied to the limit, never to the baseline. On the map the hold bands are the striped strips.</p>
+  </div>
+  <div class="panel chart-box">
+    <div class="panel-title">Illustration: inlet hovering around the Normal inlet limit</div>
+    <svg id="hys" viewBox="0 0 900 300" role="img" aria-label="Inlet temperature trend with status ribbons with and without hysteresis"></svg>
+    <div class="stat-row" id="hysStats"></div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:18px">
+    <div class="panel chart-box">
+      <div class="panel-title">Walkthrough 1: inlet cooling and warming (outlet held at 112 °C)</div>
+      <div class="tbl-wrap"><table id="walkIn"></table></div>
+      <p style="font-size:13.5px;color:var(--muted)">Leaving Normal by cooling has a 4 °C delay. Leaving Flooding by warming has none, because 152.8 °C is a maximum limit for Flooding.</p>
+    </div>
+    <div class="panel chart-box">
+      <div class="panel-title">Walkthrough 2: outlet rising and falling (inlet held at 176 °C)</div>
+      <div class="tbl-wrap"><table id="walkOut"></table></div>
+      <p style="font-size:13.5px;color:var(--muted)">Going from Normal to Heavy leak is immediate, because 130 °C is a maximum limit for Normal. Going back to Normal needs the outlet to fall below 126 °C.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section aria-labelledby="s4">
+  <div class="sec-head">
+    <span class="eyebrow">Step 4</span>
+    <h2 id="s4">What it looks like over time</h2>
+    <p>An illustrative month for one trap. The strainer slowly blocks, the trap floods and then chokes, maintenance clears it, and later the valve seat wears and the trap starts passing steam. The coloured strip underneath is the status the logic gives at each reading. Hover over the chart to see the values.</p>
+  </div>
+  <div class="panel chart-box rel" id="lifeBox">
+    <div class="legend" id="lifeLegend"></div>
+    <svg id="life" viewBox="0 0 900 380" role="img" aria-label="Illustrative 30-day inlet and outlet temperature trend with status strip"></svg>
+    <div class="tip" id="lifeTip" hidden></div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section aria-labelledby="s5">
+  <div class="sec-head">
+    <span class="eyebrow">Reference</span>
+    <h2 id="s5">Status codes and what to do</h2>
+  </div>
+  <div class="panel tbl-wrap"><table id="codeTbl"></table></div>
+</section>
+
+<section aria-labelledby="s6">
+  <div class="two">
+    <div class="panel note">
+      <h3 id="s6">Good to know</h3>
+      <ul>
+        <li>Every trap has its own baselines, so two traps with the same readings can get different statuses.</li>
+        <li>If a baseline is changed, for example after maintenance or a change in line pressure, every limit for that trap moves with it.</li>
+        <li>The status is worked out again for every new reading. The dashboard shows the latest one; trend views show the history.</li>
+        <li>A short status change can be normal. Look for a status that holds over several readings before acting.</li>
+      </ul>
+    </div>
+    <div class="panel note">
+      <h3>What temperature alone cannot tell</h3>
+      <ul>
+        <li>Where the trap discharges into a pressurised condensate line, a healthy outlet already runs hot, so a small leak may change the outlet only a little.</li>
+        <li>A sensor clamped very close to the trap body can read warmer than the pipe further down.</li>
+        <li>For a trap flagged as leaking, an ultrasonic or visual check on site confirms the fault before the trap is replaced.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer>The example limits use baseline inlet 191 °C and baseline outlet 100 °C. All charts on this page use illustrative data, not readings from a specific site.</footer>
+</div>
+
+<script>
+(()=>{
+const NS='http://www.w3.org/2000/svg';
+const $=id=>document.getElementById(id);
+const el=(tag,attrs={},parent)=>{const e=document.createElementNS(NS,tag);for(const k in attrs){if(k==='style')Object.assign(e.style,attrs[k]);else if(k==='text')e.textContent=attrs[k];else e.setAttribute(k,attrs[k]);}if(parent)parent.appendChild(e);return e;};
+const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const HYS=4;
+const ST={
+ 1:{name:'Normal',v:'--s-normal',meaning:'Inlet is near steam temperature and the outlet stays below its limit. Condensate is leaving and steam is held back.',act:'No action needed.'},
+ 9:{name:'Heavy leak',v:'--s-leak',meaning:'Inlet is hot and the outlet is above its limit. Live steam is passing through the trap.',act:'Inspect the trap; repair or replace it. Steam is being lost.'},
+ 3:{name:'Flooding',v:'--s-flood',meaning:'Inlet has cooled below the Normal limit while condensate still reaches the outlet. Condensate is backing up in front of the trap.',act:'Check strainer, trap size and back pressure on the outlet line.'},
+ 6:{name:'Choking',v:'--s-choke',meaning:'Inlet is cool and either the outlet is cold or the inlet is very low. Little or nothing is getting through the trap.',act:'Clean the strainer; check whether the trap is blocked or stuck shut.'},
+ 5:{name:'Valve closed',v:'--s-closed',meaning:'Inlet is close to room temperature. No steam is reaching the trap.',act:'Check the isolation valve and whether the steam line is in service.'},
+ 7:{name:'No status',v:'--s-none',meaning:'The readings did not match any rule.',act:'Check sensor readings and the trap\'s baseline settings.'},
+ 8:{name:'Offline',v:'--s-offline',meaning:'No reading was received from the sensor.',act:'Check device power and network connection.'}
+};
+const ORDER=[1,9,3,6,5,7,8];
+const col=c=>`var(${ST[c].v})`;
+
+// legend
+$('legend').innerHTML=ORDER.map(c=>`<span class="chip"><span class="sw" style="background:${col(c)}"></span>${ST[c].name} <span class="mono">(${c})</span></span>`).join('');
+
+// ---------- Engine ----------
+let B={tin:191,tout:100};
+function limits(){
+  const r=x=>Math.round(x*10)/10;
+  return {nIn:r(.8*B.tin),nOut:r(1.3*B.tout),fIn:r(.37*B.tin),fOutMin:50,cIn:50,vMax:50,lOut:r(1.3*B.tout)};
+}
+// Hysteresis {lower:HYS, upper:0}: only MIN limits get a hold band, from (limit - HYS) up to the limit.
+// Exact match: reading > min limit, reading <= max limit. Max limits never have a hold.
+function rules(L){
+  return [
+   {code:1,q:'Is the inlet hot and the outlet within its limit?',cond:`Inlet > ${L.nIn} °C and outlet ≤ ${L.nOut} °C`,lim:{inMin:L.nIn,outMax:L.nOut}},
+   {code:3,q:'Has the inlet cooled while condensate still reaches the outlet?',cond:`Inlet above ${L.fIn} up to ${L.nIn} °C, and outlet > ${L.fOutMin} °C`,lim:{inMin:L.fIn,inMax:L.nIn,outMin:L.fOutMin}},
+   {code:6,q:'Has the inlet cooled with little or nothing getting through?',cond:`Inlet above ${L.cIn} up to ${L.nIn} °C`,lim:{inMin:L.cIn,inMax:L.nIn}},
+   {code:5,q:'Is the inlet close to room temperature?',cond:`Inlet ≤ ${L.vMax} °C`,lim:{inMax:L.vMax}},
+   {code:9,q:'Is the outlet above its limit?',cond:`Outlet > ${L.lOut} °C`,lim:{outMin:L.lOut}}
+  ];
+}
+function fits(lim,a,b,relax){
+  const mn=(v,m)=>m==null||(relax?v>=m-HYS:v>m), mxk=(v,m)=>m==null||v<=m;
+  return mn(a,lim.inMin)&&mxk(a,lim.inMax)&&mn(b,lim.outMin)&&mxk(b,lim.outMax);
+}
+function holdText(lim){
+  const t=[];
+  if(lim.inMin!=null)t.push(`inlet ${(lim.inMin-HYS).toFixed(1).replace(/\.0$/,'')}–${lim.inMin} °C`);
+  if(lim.outMin!=null)t.push(`outlet ${(lim.outMin-HYS).toFixed(1).replace(/\.0$/,'')}–${lim.outMin} °C`);
+  return t.join(' or ');
+}
+function classify(a,b,prev,L){
+  if(a==null||b==null) return {code:8,steps:[]};
+  const R=rules(L);const steps=[];let code=7;
+  for(const r of R){
+    if(code!==7){steps.push({r,state:'skip'});continue;}
+    const ok=fits(r.lim,a,b,false);
+    steps.push({r,state:ok?'hit':'fail'});
+    if(ok)code=r.code;
+  }
+  // Hold check: keep the previous status if the reading sits in one of its hold bands and its other limits still fit
+  const pr=R.find(r=>r.code===prev);
+  if(pr&&prev!==code&&fits(pr.lim,a,b,true)&&!fits(pr.lim,a,b,false)){
+    return {code:prev,steps:steps.map(s=>({r:s.r,state:'skip'})),carry:{r:pr,exact:code}};
+  }
+  return {code,steps,carry:null,prevR:pr};
+}
+
+// ---------- Status map ----------
+const M={x0:52,x1:455,y0:12,y1:385,max:300};
+const mx=v=>M.x0+(v/M.max)*(M.x1-M.x0), my=v=>M.y1-(v/M.max)*(M.y1-M.y0);
+const map=$('map');
+let mapDyn, dot, trailG;
+function drawMap(){
+  map.innerHTML='';const L=limits();
+  const defs=el('defs',{},map);
+  const pat=el('pattern',{id:'hatch',width:6,height:6,patternUnits:'userSpaceOnUse',patternTransform:'rotate(45)'},defs);
+  el('rect',{width:6,height:6,style:{fill:'var(--surface)',fillOpacity:.35}},pat);
+  el('line',{x1:0,y1:0,x2:0,y2:6,style:{stroke:'var(--ink)',strokeWidth:1.6,strokeOpacity:.55}},pat);
+  const rect=(x0,x1,y0,y1,c)=>el('rect',{x:mx(x0),y:my(y1),width:mx(x1)-mx(x0),height:my(y0)-my(y1),style:{fill:col(c),fillOpacity:.22}},map);
+  rect(0,L.vMax,0,300,5);
+  rect(L.cIn,L.fIn,0,300,6);
+  rect(L.fIn,L.nIn,0,L.fOutMin,6);
+  rect(L.fIn,L.nIn,L.fOutMin,300,3);
+  rect(L.nIn,300,0,L.nOut,1);
+  rect(L.nIn,300,L.nOut,300,9);
+  // grid + axes
+  for(let v=0;v<=300;v+=50){
+    el('line',{x1:mx(v),x2:mx(v),y1:M.y0,y2:M.y1,style:{stroke:'var(--ink)',strokeOpacity:.08}},map);
+    el('line',{x1:M.x0,x2:M.x1,y1:my(v),y2:my(v),style:{stroke:'var(--ink)',strokeOpacity:.08}},map);
+    el('text',{x:mx(v),y:M.y1+16,'text-anchor':'middle',style:{fill:'var(--muted)',fontSize:'11px'},text:v},map);
+    el('text',{x:M.x0-6,y:my(v)+4,'text-anchor':'end',style:{fill:'var(--muted)',fontSize:'11px'},text:v},map);
+  }
+  el('text',{x:(M.x0+M.x1)/2,y:M.y1+36,'text-anchor':'middle',style:{fill:'var(--muted)',fontSize:'12px'},text:'Inlet temperature (°C) →'},map);
+  el('text',{x:14,y:(M.y0+M.y1)/2,'text-anchor':'middle',transform:`rotate(-90 14 ${(M.y0+M.y1)/2})`,style:{fill:'var(--muted)',fontSize:'12px'},text:'Outlet temperature (°C) →'},map);
+  // hysteresis bands
+  const band=(x0,x1,y0,y1)=>el('rect',{x:mx(x0),y:my(y1),width:Math.max(1,mx(x1)-mx(x0)),height:my(y0)-my(y1),fill:'url(#hatch)'},map);
+  band(L.cIn-HYS,L.cIn,0,300);
+  band(L.fIn-HYS,L.fIn,L.fOutMin,300);
+  band(L.nIn-HYS,L.nIn,0,L.nOut);
+  band(L.fIn,L.nIn,L.fOutMin-HYS,L.fOutMin);
+  band(L.nIn,300,L.lOut-HYS,L.lOut);
+  // limit lines
+  const vline=(v,lab)=>{el('line',{x1:mx(v),x2:mx(v),y1:M.y0,y2:M.y1,style:{stroke:'var(--ink)',strokeOpacity:.5,strokeDasharray:'4 3'}},map);};
+  vline(L.vMax);vline(L.fIn);vline(L.nIn);
+  el('line',{x1:mx(L.nIn),x2:M.x1,y1:my(L.nOut),y2:my(L.nOut),style:{stroke:'var(--ink)',strokeOpacity:.5,strokeDasharray:'4 3'}},map);
+  el('line',{x1:mx(L.fIn),x2:mx(L.nIn),y1:my(L.fOutMin),y2:my(L.fOutMin),style:{stroke:'var(--ink)',strokeOpacity:.5,strokeDasharray:'4 3'}},map);
+  // limit tags
+  const tag=(x,y,t,anchor='start')=>el('text',{x,y,'text-anchor':anchor,style:{fill:'var(--ink)',fontSize:'10.5px',fontFamily:'var(--f-mono)'},text:t},map);
+  tag(mx(L.nIn)+4,M.y0+12,`${L.nIn}°`);
+  tag(mx(L.fIn)+4,M.y0+12,`${L.fIn}°`);
+  tag(mx(L.vMax)-4,M.y0+12,`${L.vMax}°`,'end');
+  tag(M.x1-4,my(L.nOut)-5,`outlet ${L.nOut}°`,'end');
+  // region labels
+  const lab=(x,y,c,anchor='middle')=>el('text',{x,y,'text-anchor':anchor,style:{fill:col(c),fontSize:'13px',fontWeight:700,fontFamily:'var(--f-display)'},text:ST[c].name},map);
+  const vlab=(cx,cy,c)=>el('text',{x:cx,y:cy,'text-anchor':'middle',transform:`rotate(-90 ${cx} ${cy})`,style:{fill:col(c),fontSize:'13px',fontWeight:700,fontFamily:'var(--f-display)'},text:ST[c].name},map);
+  vlab((mx(0)+mx(L.vMax))/2+4,my(170),5);
+  vlab((mx(L.cIn)+mx(L.fIn))/2+4,my(170),6);
+  lab((mx(L.fIn)+mx(L.nIn))/2,my(200),3);
+  lab((mx(L.fIn)+mx(L.nIn))/2,my(L.fOutMin/2)+4,6);
+  lab((mx(L.nIn)+M.x1)/2,my(Math.min(290,(L.nOut+300)/2)),9);
+  lab((mx(L.nIn)+M.x1)/2,my(L.nOut/2),1);
+  trailG=el('g',{},map);
+  dot=el('g',{},map);
+  el('circle',{r:14,style:{fill:'var(--ink)',fillOpacity:.12}},dot);
+  el('circle',{r:7,style:{fill:'var(--surface)',stroke:'var(--ink)',strokeWidth:2.5}},dot);
+}
+
+// ---------- Schematic ----------
+const S=$('schem');
+let sch={};
+function tempColor(t){
+  if(t==null) return 'rgb(128,136,144)';
+  const stops=[[20,[112,128,140]],[90,[204,163,74]],[200,[216,67,47]]];
+  t=Math.max(20,Math.min(200,t));
+  for(let i=0;i<stops.length-1;i++){const [t0,c0]=stops[i],[t1,c1]=stops[i+1];if(t<=t1){const f=(t-t0)/(t1-t0);return `rgb(${c0.map((c,j)=>Math.round(c+(c1[j]-c)*f)).join(',')})`;}}
+  return 'rgb(216,67,47)';
+}
+function drawSchem(){
+  S.innerHTML='';
+  el('text',{x:22,y:196,style:{fill:'var(--muted)',fontSize:'12px'},text:'From steam line'},S);
+  el('text',{x:618,y:196,'text-anchor':'end',style:{fill:'var(--muted)',fontSize:'12px'},text:'To drain / return'},S);
+  sch.inPipe=el('rect',{x:16,y:104,width:262,height:44,rx:7},S);
+  sch.outPipe=el('rect',{x:362,y:104,width:252,height:44,rx:7},S);
+  el('rect',{x:20,y:110,width:258,height:32,style:{fill:'var(--pipe-inner)'}},S);
+  el('rect',{x:362,y:110,width:248,height:32,style:{fill:'var(--pipe-inner)'}},S);
+  sch.water=el('rect',{x:20,y:142,width:258,height:0,style:{fill:'var(--s-flood)',fillOpacity:.85}},S);
+  sch.parts=el('g',{},S);
+  // arrow
+  el('path',{d:'M614 112 L632 126 L614 140 Z',style:{fill:'var(--muted)'}},S);
+  // trap body
+  sch.trap=el('rect',{x:272,y:82,width:96,height:88,rx:16,style:{stroke:'var(--ink)',strokeWidth:2}},S);
+  sch.disc=el('rect',{x:296,y:118,width:48,height:7,rx:3,style:{fill:'var(--ink)'}},S);
+  el('text',{x:320,y:104,'text-anchor':'middle',style:{fill:'var(--ink)',fontSize:'12px',fontWeight:600},text:'TRAP'},S);
+  sch.badge=el('g',{},S);
+  // sensors
+  const sensor=(x,label,key)=>{
+    el('rect',{x:x-6,y:98,width:12,height:56,rx:3,style:{fill:'var(--ink)'}},S);
+    el('line',{x1:x,y1:98,x2:x,y2:64,style:{stroke:'var(--ink)',strokeWidth:1.5}},S);
+    const g=el('g',{},S);
+    el('rect',{x:x-62,y:10,width:124,height:54,rx:8,style:{fill:'var(--surface)',stroke:'var(--ink)',strokeWidth:1.5}},g);
+    el('text',{x,y:28,'text-anchor':'middle',style:{fill:'var(--muted)',fontSize:'10.5px',letterSpacing:'.08em',fontFamily:'var(--f-mono)'},text:label},g);
+    sch[key]=el('text',{x,y:54,'text-anchor':'middle',style:{fill:'var(--ink)',fontSize:'21px',fontWeight:600,fontFamily:'var(--f-mono)'}},g);
+  };
+  sensor(170,'INLET SENSOR','tinT');
+  sensor(470,'OUTLET SENSOR','toutT');
+}
+function badge(code){
+  sch.badge.innerHTML='';
+  const t=ST[code].name;const w=t.length*8.6+44;
+  el('rect',{x:320-w/2,y:186,width:w,height:30,rx:15,style:{fill:col(code)}},sch.badge);
+  el('text',{x:320,y:206,'text-anchor':'middle',style:{fill:'var(--surface)',fontSize:'14px',fontWeight:700,fontFamily:'var(--f-display)'},text:`${t} (${code})`},sch.badge);
+}
+
+// particles
+let parts=[],spawnAcc={s:0,d:0},mode=1;
+const FLOW={
+ 1:{steam:5,sv:90,stopAt:262,water:0,drip:2.5,dv:55},
+ 9:{steam:12,sv:150,stopAt:640,water:0,drip:1,dv:55},
+ 3:{steam:4,sv:70,stopAt:150,water:.55,drip:1.2,dv:30},
+ 6:{steam:2,sv:60,stopAt:60,water:1,drip:0,dv:0},
+ 5:{steam:0,water:0,drip:0},7:{steam:0,water:0,drip:0},8:{steam:0,water:0,drip:0}
+};
+function stepParticles(dt){
+  const f=FLOW[mode];
+  spawnAcc.s+=(f.steam||0)*dt;spawnAcc.d+=(f.drip||0)*dt;
+  while(spawnAcc.s>=1){spawnAcc.s--;parts.push({k:'s',x:22,y:116+Math.random()*16,v:f.sv*(0.85+Math.random()*.3)});}
+  while(spawnAcc.d>=1){spawnAcc.d--;parts.push({k:'d',x:276,y:136+Math.random()*3,v:f.dv*(0.8+Math.random()*.4)});}
+  for(const p of parts){
+    p.x+=p.v*dt;
+    if(p.k==='s'&&p.x>=f.stopAt&&f.stopAt<640){p.dead=true;}
+    if(p.k==='s'&&f.stopAt>=640&&p.x>280&&p.x<360)p.y+= (126-p.y)*.2;
+    if(p.x>612)p.dead=true;
+  }
+  parts=parts.filter(p=>!p.dead).slice(-160);
+}
+function renderParticles(){
+  const g=sch.parts;g.innerHTML='';
+  for(const p of parts){
+    if(p.x>278&&p.x<362&&p.k==='s'){ el('circle',{cx:p.x,cy:p.y,r:3.5,style:{fill:'var(--steam)',fillOpacity:.9}},g); continue; }
+    if(p.k==='s') el('circle',{cx:p.x,cy:p.y,r:4,style:{fill:'var(--steam)',fillOpacity:.85}},g);
+    else el('ellipse',{cx:p.x,cy:p.y,rx:4.5,ry:3,style:{fill:'var(--s-flood)'}},g);
+  }
+}
+
+// ---------- State & UI ----------
+let cur={tin:176,tout:112,off:false};let prev=1;let trail=[];
+const tinR=$('tinR'),toutR=$('toutR');
+function update(fromTween){
+  const L=limits();
+  const a=cur.off?null:cur.tin,b=cur.off?null:cur.tout;
+  const res=classify(a,b,prev,L);prev=res.code;mode=res.code;
+  // sliders
+  tinR.value=Math.round(cur.tin);toutR.value=Math.round(cur.tout);
+  $('tinO').textContent=cur.off?'—':`${Math.round(cur.tin)} °C`;$('toutO').textContent=cur.off?'—':`${Math.round(cur.tout)} °C`;
+  // schematic
+  sch.inPipe.style.fill=tempColor(a);sch.outPipe.style.fill=tempColor(b);
+  sch.trap.style.fill=tempColor(a==null?null:(a+b)/2);
+  sch.tinT.textContent=a==null?'no signal':`${Math.round(a)} °C`;
+  sch.toutT.textContent=b==null?'no signal':`${Math.round(b)} °C`;
+  sch.tinT.style.fontSize=a==null?'15px':'21px';sch.toutT.style.fontSize=b==null?'15px':'21px';
+  const w=FLOW[mode].water;sch.water.setAttribute('height',32*w);sch.water.setAttribute('y',142-32*w);
+  badge(res.code);
+  if(reduced){parts=[];const f=FLOW[mode];for(let i=0;i<f.steam;i++)parts.push({k:'s',x:30+i*(Math.min(f.stopAt,600)-40)/Math.max(1,f.steam),y:122});for(let i=0;i<Math.round(f.drip*2);i++)parts.push({k:'d',x:300+i*60,y:137});renderParticles();}
+  // map dot
+  if(!cur.off){
+    dot.style.display='';dot.setAttribute('transform',`translate(${mx(cur.tin)},${my(cur.tout)})`);
+    trail.push([cur.tin,cur.tout]);trail=trail.slice(-26);
+    trailG.innerHTML='';trail.forEach(([x,y],i)=>el('circle',{cx:mx(x),cy:my(y),r:2.2,style:{fill:'var(--ink)',fillOpacity:(i/trail.length)*.45}},trailG));
+  } else dot.style.display='none';
+  const big=$('statusBig');
+  big.innerHTML=`<span class="sw" style="background:${col(res.code)}"></span>${ST[res.code].name}<span class="code">status ${res.code}</span>`;
+  // path
+  const P=$('path');
+  if(res.code===8){P.innerHTML=`<li class="hit" style="--hit:${col(8)}"><span class="n">0</span><span class="cond">Was a reading received?<small>No reading from the sensors</small></span><span class="res">No → Offline</span></li>`;}
+  else {
+    const pc=res.carry?res.carry.r:res.prevR;
+    let hold;
+    if(res.carry) hold=`<li class="hit" style="--hit:${col(res.code)}"><span class="n">0</span><span class="cond">Hold check: was the trap already ${ST[res.code].name}?<small>Yes, and the reading is inside its hold band (${holdText(pc.lim)}) with its other limits still met. Without the hold it would be ${ST[res.carry.exact].name}.</small></span><span class="res">Keep ${ST[res.code].name}</span></li>`;
+    else hold=`<li class="fail"><span class="n">0</span><span class="cond">Hold check: is the reading inside the hold band of the previous status${pc?` (${ST[pc.code].name})`:''}?<small>${pc&&holdText(pc.lim)?`Hold band: ${holdText(pc.lim)}`:'No hold band applies'}</small></span><span class="res">No</span></li>`;
+    P.innerHTML=hold+res.steps.map((s,i)=>{
+      const c=s.r.code;const st=s.state;
+      const res2=st==='hit'?`Yes → ${ST[c].name}`:st==='fail'?'No':'not needed';
+      return `<li class="${st}" style="--hit:${col(c)}"><span class="n">${i+1}</span><span class="cond">${s.r.q}<small>${s.r.cond}</small></span><span class="res">${res2}</span></li>`;
+    }).join('')+(res.code===7?`<li class="hit" style="--hit:${col(7)}"><span class="n">–</span><span class="cond">No rule matched</span><span class="res">No status</span></li>`:'');
+  }
+  if(!fromTween&&!touring)$('caption').innerHTML=`<b>${ST[res.code].name}.</b> ${ST[res.code].meaning}`;
+}
+
+// scenarios
+const SCEN=[
+ {k:1,tin:176,tout:112,txt:'<b>Normal.</b> The inlet is close to steam temperature and the outlet stays below its limit. The trap lets condensate out and holds the steam back.'},
+ {k:9,tin:183,tout:168,txt:'<b>Heavy leak.</b> The inlet is still hot, but now the outlet is hot too, above the outlet limit. Live steam is blowing straight through the trap.'},
+ {k:3,tin:125,tout:85,txt:'<b>Flooding.</b> Condensate is backing up in front of the trap, so the inlet cools below the Normal limit. Some condensate still reaches the outlet.'},
+ {k:6,tin:138,tout:30,txt:'<b>Choking.</b> The inlet has cooled and the outlet is cold. Water fills the inlet and almost nothing gets through.'},
+ {k:6,tin:60,tout:90,txt:'<b>Choking (very cold inlet).</b> When the inlet is between 50 °C and the flooding limit, the trap is counted as choking whatever the outlet reads.'},
+ {k:5,tin:30,tout:28,txt:'<b>Valve closed.</b> The inlet is close to room temperature. No steam is reaching the trap, usually because the isolation valve is shut.'},
+ {k:8,tin:30,tout:28,off:true,txt:'<b>Offline.</b> No reading arrived from the sensor, so no rule can be checked.'}
+];
+const btns=$('scenBtns');
+SCEN.forEach((s,i)=>{
+  const b=document.createElement('button');b.type='button';b.dataset.i=i;
+  b.innerHTML=`<span class="sw" style="background:${col(s.k)}"></span>${i===4?'Choking (cold inlet)':ST[s.k].name}`;
+  b.addEventListener('click',()=>{stopTour();goTo(i);});btns.appendChild(b);
+});
+function setPressed(i){[...btns.querySelectorAll('button[data-i]')].forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.i===i)));}
+let tween=null;
+function goTo(i,cb){
+  const s=SCEN[i];setPressed(i);
+  $('caption').innerHTML=s.txt;
+  if(s.off){cur.off=true;update(true);cb&&setTimeout(cb,0);return;}
+  cur.off=false;
+  const from={tin:cur.tin,tout:cur.tout},to={tin:s.tin,tout:s.tout};
+  if(reduced){cur.tin=to.tin;cur.tout=to.tout;update(true);cb&&cb();return;}
+  const t0=performance.now(),D=1100;
+  cancelAnimationFrame(tween);
+  const tick=now=>{let f=Math.min(1,(now-t0)/D);f=f<.5?2*f*f:1-Math.pow(-2*f+2,2)/2;
+    cur.tin=from.tin+(to.tin-from.tin)*f;cur.tout=from.tout+(to.tout-from.tout)*f;update(true);
+    if(f<1)tween=requestAnimationFrame(tick);else cb&&cb();};
+  tween=requestAnimationFrame(tick);
+}
+let touring=false,tourTimer=null,tourIdx=0;
+function stopTour(){touring=false;clearTimeout(tourTimer);$('tourBtn').textContent='▶ Play tour';}
+function runTour(){
+  if(!touring)return;
+  goTo(tourIdx,()=>{tourTimer=setTimeout(()=>{tourIdx=(tourIdx+1)%SCEN.length;runTour();},3200);});
+}
+$('tourBtn').addEventListener('click',()=>{if(touring){stopTour();return;}touring=true;$('tourBtn').textContent='❚❚ Pause tour';runTour();});
+const manual=()=>{stopTour();setPressed(-1);cur.off=false;};
+tinR.addEventListener('input',()=>{manual();cur.tin=+tinR.value;update();});
+toutR.addEventListener('input',()=>{manual();cur.tout=+toutR.value;update();});
+let dragging=false;
+function mapPoint(e){
+  const r=map.getBoundingClientRect();const sx=470/r.width;
+  const x=(e.clientX-r.left)*sx,y=(e.clientY-r.top)*(430/r.height);
+  const tin=Math.max(0,Math.min(300,(x-M.x0)/(M.x1-M.x0)*300)),tout=Math.max(0,Math.min(300,(M.y1-y)/(M.y1-M.y0)*300));
+  manual();cur.tin=tin;cur.tout=tout;update();
+}
+map.addEventListener('pointerdown',e=>{dragging=true;map.setPointerCapture(e.pointerId);mapPoint(e);});
+map.addEventListener('pointermove',e=>{if(dragging)mapPoint(e);});
+map.addEventListener('pointerup',()=>dragging=false);
+
+// animation loop
+let last=performance.now();
+function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;stepParticles(dt);renderParticles();requestAnimationFrame(loop);}
+
+// ---------- Limits table ----------
+function drawLimits(){
+  const L=limits();
+  const rows=[
+    [1,'Inlet minimum','0.8 × baseline inlet',L.nIn,`${(L.nIn-HYS).toFixed(1)}–${L.nIn} °C`],
+    [1,'Outlet maximum','1.3 × baseline outlet',L.nOut,'None (maximum limit)'],
+    [3,'Inlet minimum','0.37 × baseline inlet',L.fIn,`${(L.fIn-HYS).toFixed(1)}–${L.fIn} °C`],
+    [3,'Inlet maximum','0.8 × baseline inlet',L.nIn,'None (maximum limit)'],
+    [3,'Outlet minimum','Fixed',L.fOutMin,`${L.fOutMin-HYS}–${L.fOutMin} °C`],
+    [6,'Inlet minimum','Fixed',L.cIn,`${L.cIn-HYS}–${L.cIn} °C`],
+    [6,'Inlet maximum','0.8 × baseline inlet',L.nIn,'None (maximum limit)'],
+    [5,'Inlet maximum','Fixed',L.vMax,'None (maximum limit)'],
+    [9,'Outlet minimum','1.3 × baseline outlet',L.lOut,`${L.lOut-HYS}–${L.lOut} °C`],
+  ];
+  $('limTbl').innerHTML='<thead><tr><th>Status</th><th>Limit</th><th>How it is set</th><th>Value (°C)</th><th>Hold band</th></tr></thead><tbody>'+
+   rows.map(r=>`<tr><td><span class="chip"><span class="sw" style="background:${col(r[0])}"></span>${ST[r[0]].name}</span></td><td>${r[1]}</td><td>${r[2]}</td><td class="num">${r[3]}</td><td>${r[4]}</td></tr>`).join('')+'</tbody>';
+}
+function drawFlow(){
+  const L=limits();const R=rules(L);
+  let h=`<div class="step"><span class="num">A</span><div class="q">Was a reading received from both sensors?<small>If not, the trap is marked Offline</small></div><div class="yes"><span class="arrow">no →</span><span class="pill" style="color:${col(8)}">Offline</span></div></div><div class="no">yes ↓</div>`;
+  h+=`<div class="step"><span class="num">B</span><div class="q">Hold check: is the reading inside a hold band of the trap's previous status, with that status's other limits still met?<small>Hold bands sit just below each minimum limit (see Step 3)</small></div><div class="yes"><span class="arrow">yes →</span><span class="pill" style="color:var(--ink)">Keep previous status</span></div></div><div class="no">no ↓</div>`;
+  R.forEach((r,i)=>{h+=`<div class="step"><span class="num">${i+1}</span><div class="q">${r.q}<small class="mono">${r.cond}</small></div><div class="yes"><span class="arrow">yes →</span><span class="pill" style="color:${col(r.code)}">${ST[r.code].name}</span></div></div><div class="no">no ↓</div>`;});
+  h+=`<div class="step"><span class="num">–</span><div class="q">Nothing matched</div><div class="yes"><span class="arrow">→</span><span class="pill" style="color:${col(7)}">No status</span></div></div>`;
+  $('flow').innerHTML=h;
+}
+function drawCodes(){
+  $('codeTbl').innerHTML='<thead><tr><th>Code</th><th>Status</th><th>What it means</th><th>Suggested action</th></tr></thead><tbody>'+
+   ORDER.map(c=>`<tr><td class="num">${c}</td><td><span class="chip" style="white-space:nowrap"><span class="sw" style="background:${col(c)}"></span><b>${ST[c].name}</b></span></td><td>${ST[c].meaning}</td><td>${ST[c].act}</td></tr>`).join('')+'</tbody>';
+}
+
+// seeded random
+function rng(seed){return()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646;};}
+
+// ---------- Hysteresis chart ----------
+function drawHys(){
+  const svg=$('hys');svg.innerHTML='';const L=limits();const lim=L.nIn;
+  const r=rng(7);const N=72;
+  const data=[];for(let i=0;i<N;i++){data.push(lim+1.2+2.6*Math.sin(i/4.2)+ (r()-.5)*3.2 - (i>50?5:0));}
+  const X0=60,X1=880,Y0=14,Y1=180;
+  const lo=lim-12,hi=lim+10;
+  const x=i=>X0+i/(N-1)*(X1-X0),y=v=>Y1-(v-lo)/(hi-lo)*(Y1-Y0);
+  for(let v=Math.ceil(lo/4)*4;v<=hi;v+=4){el('line',{x1:X0,x2:X1,y1:y(v),y2:y(v),style:{stroke:'var(--ink)',strokeOpacity:.07}},svg);el('text',{x:X0-8,y:y(v)+4,'text-anchor':'end',style:{fill:'var(--muted)',fontSize:'11px'},text:v},svg);}
+  el('rect',{x:X0,y:y(lim),width:X1-X0,height:y(lim-HYS)-y(lim),style:{fill:'var(--s-normal)',fillOpacity:.12}},svg);
+  el('line',{x1:X0,x2:X1,y1:y(lim),y2:y(lim),style:{stroke:'var(--s-normal)',strokeWidth:1.5,strokeDasharray:'5 4'}},svg);
+  el('line',{x1:X0,x2:X1,y1:y(lim-HYS),y2:y(lim-HYS),style:{stroke:'var(--s-flood)',strokeWidth:1.5,strokeDasharray:'5 4'}},svg);
+  el('text',{x:X1-4,y:y(lim)-6,'text-anchor':'end',style:{fill:'var(--ink)',fontSize:'11.5px'},text:`Normal inlet limit ${lim} °C`},svg);
+  el('text',{x:X1-4,y:y(lim-HYS)+15,'text-anchor':'end',style:{fill:'var(--ink)',fontSize:'11.5px'},text:`Leave Normal only below ${(lim-HYS).toFixed(1)} °C`},svg);
+  el('path',{d:data.map((v,i)=>`${i?'L':'M'}${x(i)},${y(v)}`).join(''),style:{fill:'none',stroke:'var(--ink)',strokeWidth:2}},svg);
+  data.forEach((v,i)=>el('circle',{cx:x(i),cy:y(v),r:2.2,style:{fill:'var(--ink)'}},svg));
+  // ribbons
+  const without=data.map(v=>classify(v,112,null,L).code);
+  let p=1;const withH=data.map(v=>{const c=classify(v,112,p,L).code;p=c;return c;});
+  const rib=(arr,yy,label)=>{
+    el('text',{x:X0-8,y:yy+14,'text-anchor':'end',style:{fill:'var(--muted)',fontSize:'11px'},text:''},svg);
+    el('text',{x:X0,y:yy-6,style:{fill:'var(--muted)',fontSize:'12px'},text:label},svg);
+    const w=(X1-X0)/(N-1);
+    arr.forEach((c,i)=>el('rect',{x:Math.max(X0,x(i)-w/2),y:yy,width:Math.min(w+.5,X1-Math.max(X0,x(i)-w/2)),height:20,style:{fill:col(c)}},svg));
+  };
+  rib(without,212,'Status without hysteresis');
+  rib(withH,268,`Status with ${HYS} °C hysteresis`);
+  const ch=a=>a.reduce((n,c,i)=>n+(i&&c!==a[i-1]?1:0),0);
+  $('hysStats').innerHTML=`<span>Status changes without hysteresis: <b>${ch(without)}</b></span><span>With hysteresis: <b>${ch(withH)}</b></span><span>Same readings, same limits. The only difference is the hold band.</span>`;
+  $('hysTxt').textContent=`${HYS} °C`;
+}
+
+// ---------- Life of a trap ----------
+function lifeSeries(){
+  const r=rng(42);const N=240;const out=[];
+  const bi=B.tin,bo=B.tout;
+  const lerp=(a,b,f)=>a+(b-a)*Math.max(0,Math.min(1,f));
+  for(let i=0;i<N;i++){
+    const d=i/8;let tin,tout;
+    const nIn=bi*.92,nOut=bo*1.1;
+    if(d<8){tin=nIn;tout=nOut;}
+    else if(d<13){const f=(d-8)/5;tin=lerp(nIn,bi*.62,f);tout=lerp(nOut,bo*.75,f);}
+    else if(d<16.5){const f=(d-13)/1.5;tin=lerp(bi*.62,bi*.55,f);tout=lerp(bo*.75,35,f);}
+    else if(d<17){const f=(d-16.5)/.5;tin=lerp(bi*.55,nIn,f);tout=lerp(35,nOut,f);}
+    else if(d<23){tin=nIn;tout=nOut;}
+    else {const f=(d-23)/4;tin=nIn+2;tout=lerp(nOut,bo*1.65,f);}
+    tin+=(r()-.5)*4;tout+=(r()-.5)*5;
+    const off=d>=20&&d<20.6;
+    out.push({d,tin:off?null:tin,tout:off?null:tout});
+  }
+  return out;
+}
+function drawLife(){
+  const svg=$('life');svg.innerHTML='';const L=limits();
+  const data=lifeSeries();let p=1;
+  data.forEach(o=>{const c=classify(o.tin,o.tout,p,L).code;o.code=c;if(c!==8)p=c;});
+  const X0=60,X1=880,Y0=34,Y1=300;const N=data.length;
+  const vmax=Math.max(250,Math.ceil(Math.max(...data.map(o=>Math.max(o.tin||0,o.tout||0)))/50)*50);
+  const x=i=>X0+i/(N-1)*(X1-X0),y=v=>Y1-v/vmax*(Y1-Y0);
+  for(let v=0;v<=vmax;v+=50){el('line',{x1:X0,x2:X1,y1:y(v),y2:y(v),style:{stroke:'var(--ink)',strokeOpacity:.07}},svg);el('text',{x:X0-8,y:y(v)+4,'text-anchor':'end',style:{fill:'var(--muted)',fontSize:'11px'},text:`${v}°`},svg);}
+  for(let dd=0;dd<=30;dd+=5){el('text',{x:x(dd*8>N-1?N-1:dd*8),y:Y1+52,'text-anchor':'middle',style:{fill:'var(--muted)',fontSize:'11px'},text:`Day ${dd}`},svg);}
+  // limit lines
+  const hl=(v,lab,c)=>{el('line',{x1:X0,x2:X1,y1:y(v),y2:y(v),style:{stroke:c,strokeOpacity:.8,strokeDasharray:'5 4'}},svg);el('text',{x:X1,y:y(v)-4,'text-anchor':'end',style:{fill:c,fontSize:'10.5px',fontFamily:'var(--f-mono)'},text:lab},svg);};
+  hl(L.nIn,`Normal inlet min ${L.nIn}°`,'var(--s-normal)');
+  hl(L.nOut,`Outlet limit ${L.nOut}°`,'var(--s-leak)');
+  hl(L.fIn,`Flooding inlet min ${L.fIn}°`,'var(--s-flood)');
+  hl(50,'50° (fixed)','var(--s-choke)');
+  // phases
+  const ph=[[0,8,'Healthy'],[8,13,'Strainer blocking'],[13,16.5,'Blocked'],[16.5,23,'After maintenance'],[23,30,'Valve seat wearing']];
+  ph.forEach(([a,b,t],i)=>{const xa=x(Math.min(N-1,a*8)),xb=x(Math.min(N-1,b*8));if(i)el('line',{x1:xa,x2:xa,y1:Y0-10,y2:Y1,style:{stroke:'var(--ink)',strokeOpacity:.18}},svg);el('text',{x:(xa+xb)/2,y:Y0-14,'text-anchor':'middle',style:{fill:'var(--muted)',fontSize:'11.5px'},text:t},svg);});
+  const line=(k,c)=>{let d='';let pen=false;data.forEach((o,i)=>{if(o[k]==null){pen=false;return;}d+=`${pen?'L':'M'}${x(i).toFixed(1)},${y(o[k]).toFixed(1)}`;pen=true;});el('path',{d,style:{fill:'none',stroke:c,strokeWidth:2.2,strokeLinejoin:'round'}},svg);};
+  line('tin','var(--ink)');line('tout','var(--accent)');
+  // ribbon
+  const w=(X1-X0)/(N-1);
+  data.forEach((o,i)=>el('rect',{x:x(i)-w/2,y:Y1+12,width:w+.6,height:18,style:{fill:col(o.code)}},svg));
+  el('text',{x:X0-8,y:Y1+25,'text-anchor':'end',style:{fill:'var(--muted)',fontSize:'11px'},text:'Status'},svg);
+  // hover
+  const cross=el('line',{y1:Y0,y2:Y1+30,style:{stroke:'var(--ink)',strokeOpacity:.5,display:'none'}},svg);
+  const hit=el('rect',{x:X0,y:Y0,width:X1-X0,height:Y1+30-Y0,style:{fill:'transparent'}},svg);
+  const tip=$('lifeTip'),box=$('lifeBox');
+  hit.addEventListener('pointermove',e=>{
+    const r=svg.getBoundingClientRect();const sx=(e.clientX-r.left)*(900/r.width);
+    const i=Math.max(0,Math.min(N-1,Math.round((sx-X0)/(X1-X0)*(N-1))));const o=data[i];
+    cross.setAttribute('x1',x(i));cross.setAttribute('x2',x(i));cross.style.display='';
+    tip.hidden=false;
+    tip.innerHTML=`<span class="mono">Day ${o.d.toFixed(1)}</span><br>Inlet <b class="mono">${o.tin==null?'—':o.tin.toFixed(0)+' °C'}</b> · Outlet <b class="mono">${o.tout==null?'—':o.tout.toFixed(0)+' °C'}</b><br><span class="chip"><span class="sw" style="background:${col(o.code)}"></span>${ST[o.code].name}</span>`;
+    const br=box.getBoundingClientRect();let left=e.clientX-br.left+14;if(left>br.width-200)left=e.clientX-br.left-200;
+    tip.style.left=left+'px';tip.style.top=(e.clientY-br.top-20)+'px';
+  });
+  hit.addEventListener('pointerleave',()=>{tip.hidden=true;cross.style.display='none';});
+  $('lifeLegend').innerHTML=`<span class="chip"><span class="sw" style="background:var(--ink);height:3px"></span>Inlet temperature</span><span class="chip"><span class="sw" style="background:var(--accent);height:3px"></span>Outlet temperature</span><span class="chip">Dashed lines: limits from Step 1</span><span class="chip">Gap on day 20: sensor offline</span>`;
+}
+
+function drawWalk(){
+  const L=limits();const f=v=>(Math.round(v*10)/10).toString();
+  const pill=c=>`<span class="chip" style="white-space:nowrap"><span class="sw" style="background:${col(c)}"></span>${ST[c].name}</span>`;
+  const run=(pts,why)=>{let p=null;return pts.map(([a,b],i)=>{const ex=classify(a,b,null,L).code;const r=classify(a,b,p,L);p=r.code;
+    return `<tr><td class="num">T${i+1}</td><td class="num">${f(a)}</td><td class="num">${f(b)}</td><td>${pill(ex)}</td><td>${pill(r.code)}</td><td style="font-size:13px;color:var(--muted)">${why[i]}</td></tr>`;}).join('');};
+  const hd='<thead><tr><th>Time</th><th>Inlet</th><th>Outlet</th><th>Without hold</th><th>With hold</th><th>Why</th></tr></thead>';
+  const ob=(112>L.fOutMin&&112<=L.nOut)?112:Math.round((L.fOutMin+L.nOut)/2), lo=(L.nIn-HYS);
+  const ins=[7.2,1.2,-1.8,-2.8,-4.8,-2.8,0.2].map(d=>[L.nIn+d,ob]);
+  $('walkIn').innerHTML=hd+'<tbody>'+run(ins,[
+    `above ${L.nIn}`,`still above ${L.nIn}`,`inside hold band ${f(lo)}–${L.nIn}: keep Normal`,`still inside the hold band`,
+    `below ${f(lo)}: hold ends`,`exact Flooding (up to ${L.nIn})`,`above ${L.nIn}: Flooding maximum fails at once`])+'</tbody>';
+  const outs=[-10,0.5,-2,-5].map(d=>[L.nIn+23.2,L.lOut+d]);
+  $('walkOut').innerHTML=hd+'<tbody>'+run(outs,[
+    `outlet within ${L.nOut}`,`above ${L.nOut}: no hold on a maximum`,`inside hold band ${L.lOut-HYS}–${L.lOut}: keep Heavy leak`,`below ${L.lOut-HYS}: hold ends`])+'</tbody>';
+}
+function redrawAll(){drawMap();drawLimits();drawFlow();drawCodes();drawHys();drawWalk();drawLife();trail=[];update();}
+['bIn','bOut'].forEach(id=>$(id).addEventListener('input',()=>{
+  const vi=+$('bIn').value,vo=+$('bOut').value;
+  if(vi>=60&&vi<=400)B.tin=vi; if(vo>=30&&vo<=300)B.tout=vo;
+  redrawAll();
+}));
+
+drawSchem();redrawAll();setPressed(0);$('caption').innerHTML=SCEN[0].txt;
+if(!reduced)requestAnimationFrame(loop);else renderParticles();
+})();
+</script>
+
+</body>
+</html>
